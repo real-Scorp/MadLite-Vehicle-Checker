@@ -1,0 +1,118 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Vehicles Overview</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f8f9fa;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .vehicle-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .vehicle-table th, .vehicle-table td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+        .vehicle-table th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+            color: #333;
+        }
+        .vehicle-table tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .vehicle-table tr:nth-child(odd) {
+            background-color: #ffffff;
+        }
+        .vehicle-table tr:hover {
+            background-color: #f1f1f1;
+        }
+        .vehicle-id {
+            font-weight: bold;
+            color: #0d6efd;
+        }
+        .status-active {
+            color: green;
+            font-weight: bold;
+        }
+        .status-maintenance {
+            color: orange;
+            font-weight: bold;
+        }
+        .status-off_road {
+            color: red;
+            font-weight: bold;
+        }
+        .service-due-soon {
+            color: #ff9800;
+        }
+        .service-due-overdue {
+            color: #f44336;
+        }
+        .service-due-ok {
+            color: #4caf50;
+        }
+    </style>
+</head>
+<body>
+    <h1>Vehicles Overview</h1>
+    
+    <table class="vehicle-table">
+        <thead>
+            <tr>
+                <th>Vehicle ID</th>
+                <th>Employee</th>
+                <th>Registration</th>
+                <th>Insurance</th>
+                <th>Reg Expiry</th>
+                <th>Insurance Expiry</th>
+                <th>Service Due</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for vehicle in vehicles %}
+            <tr>
+                <td class="vehicle-id">
+                    <a href="{% url 'admin:vehicle_management_vehicle_change' vehicle.id %}">
+                        {{ vehicle.name }}
+                    </a>
+                </td>
+                <td>{{ vehicle.employee_name|default:"Unassigned" }}</td>
+                <td>{{ vehicle.registration }}</td>
+                <td>{{ vehicle.insurance_company }}</td>
+                <td>{{ vehicle.registration_expiry|date:"d/m/Y"|default:"-" }}</td>
+                <td>{{ vehicle.insurance_expiry|date:"d/m/Y"|default:"-" }}</td>
+                <td>
+                    {% if vehicle.service_due_status == "✓ Yes" %}
+                        <span class="service-due-ok">✓ Yes</span>
+                    {% elif vehicle.service_due_status == "⚠️ Soon" %}
+                        <span class="service-due-soon">⚠️ Soon</span>
+                    {% else %}
+                        <span class="service-due-overdue">✗ No</span>
+                    {% endif %}
+                </td>
+                <td class="status-{{ vehicle.status }}">
+                    {{ vehicle.get_status_display }}
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="8">No vehicles found</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

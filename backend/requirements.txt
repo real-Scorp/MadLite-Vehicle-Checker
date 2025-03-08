@@ -1,0 +1,15 @@
+asgiref==3.8.1
+Django==5.1.6
+django-cors-headers==4.7.0
+djangorestframework==3.15.2
+psycopg2-binary==2.9.10
+sqlparse==0.5.3
+
+
+    ##Django Routes and API
+   # Admin interface: http://127.0.0.1:8000/admin/
+   # API root: http://127.0.0.1:8000/api/
+   # Vehicles list: http://127.0.0.1:8000/api/vehicles/
+   # Parts list: http://127.0.0.1:8000/api/parts/
+   # Service records: http://127.0.0.1:8000/api/services/ 
+    

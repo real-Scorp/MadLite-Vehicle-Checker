@@ -1,0 +1,804 @@
+
+================================================================================
+vehicle_management/models.py
+================================================================================
+
+from django.db import models
+
+# Create your models here.
+from django.db import models
+from django.contrib.auth.models import User
+
+from django.db import models
+from django.contrib.auth.models import User
+from datetime import date, timedelta
+
+class Employee(models.Model):
+    """Model representing a company employee who can be assigned to vehicles"""
+    
+    # Basic Information
+    first_name = models.CharField(max_length=100)
+    last_name = models.CharField(max_length=100)
+    employee_id = models.CharField(max_length=50, unique=True)
+    position = models.CharField(max_length=100, blank=True)
+    department = models.CharField(max_length=100, blank=True)
+    
+    # Contact Information
+    email = models.EmailField(blank=True)
+    phone = models.CharField(max_length=20, blank=True)
+    
+    # License Information
+    license_number = models.CharField(max_length=50, blank=True)
+    license_expiry = models.DateField(null=True, blank=True)
+    license_class = models.CharField(max_length=20, blank=True)  # e.g., C, LR, MR, HR
+    
+    # Employment Details
+    hire_date = models.DateField(null=True, blank=True)
+    fifo = models.BooleanField(default=False, verbose_name="FIFO Worker")
+    
+    # Job Information
+    last_job_completed = models.CharField(max_length=200, blank=True)
+    current_job = models.CharField(max_length=200, blank=True)
+    next_job = models.CharField(max_length=200, blank=True)
+    job_history = models.TextField(blank=True, help_text="History of completed jobs")
+    
+    # Additional Information
+    notes = models.TextField(blank=True)
+    
+    # User account (if applicable)
+    user = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='employee_profile')
+    
+    def __str__(self):
+        return f"{self.first_name} {self.last_name} ({self.employee_id})"
+    
+    @property
+    def full_name(self):
+        """Return the employee's full name"""
+        return f"{self.first_name} {self.last_name}"
+    
+    @property
+    def license_valid(self):
+        """Check if driver's license is valid and not expired"""
+        if not self.license_expiry:
+            return False
+        return self.license_expiry >= date.today()
+
+
+class Vehicle(models.Model):
+    """Model representing a company vehicle"""
+    STATUS_CHOICES = (
+        ('active', 'Active'),
+        ('maintenance', 'In Maintenance'),
+        ('off_road', 'Off Road'),
+        ('decommissioned', 'Decommissioned'),
+    )
+    
+    # Basic Information
+    name = models.CharField(max_length=100)  # Vehicle name/ID (e.g., "MAD 2")
+    employee_name = models.CharField(max_length=100, blank=True)  # Name of employee assigned
+    make = models.CharField(max_length=100)
+    model = models.CharField(max_length=100)
+    year = models.IntegerField()
+    drive_type = models.CharField(max_length=10, choices=[('2x4', '2x4'), ('4x4', '4x4')], blank=True)
+    
+    # Registration and Identification
+    registration = models.CharField(max_length=20, unique=True)
+    registration_expiry = models.DateField(null=True, blank=True)
+    vin = models.CharField(max_length=50, unique=True, verbose_name="VIN")
+    engine_number = models.CharField(max_length=50, blank=True)
+    fuel_card_number = models.CharField(max_length=50, blank=True)
+    
+    # Insurance
+    insurance_company = models.CharField(max_length=100, blank=True)
+    insurance_expiry = models.DateField(null=True, blank=True)
+    
+    # Operational Details
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+    purchase_date = models.DateField()
+    current_mileage = models.IntegerField(default=0)
+    tyre_size = models.CharField(max_length=50, blank=True)
+    rim_color = models.CharField(max_length=50, blank=True)
+    
+    # Service Information
+    last_service_date = models.DateField(null=True, blank=True)
+    last_service_mileage = models.IntegerField(null=True, blank=True)
+    service_interval_months = models.IntegerField(default=6)
+    service_interval_miles = models.IntegerField(default=10000)
+    next_major_service_date = models.DateField(null=True, blank=True)
+    
+    # Additional Information
+    notes = models.TextField(blank=True)
+    assigned_to = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_vehicles')
+    
+    def __str__(self):
+        return f"{self.name} - {self.year} {self.make} {self.model} ({self.registration})"
+    
+    @property
+    def next_service_date(self):
+        """Calculate the next service date based on last service and interval"""
+        if not self.last_service_date:
+            return None
+        return self.last_service_date + timedelta(days=self.service_interval_months * 30)
+    
+    @property
+    def next_service_mileage(self):
+        """Calculate the next service mileage based on last service and interval"""
+        if not self.last_service_mileage:
+            return None
+        return self.last_service_mileage + self.service_interval_miles
+    
+    @property
+    def service_due(self):
+        """Check if service is due based on date or mileage"""
+        if not self.last_service_date or not self.last_service_mileage:
+            return True
+        
+        date_due = self.next_service_date <= date.today()
+        mileage_due = self.current_mileage >= self.next_service_mileage
+        
+        return date_due or mileage_due
+
+
+class VehiclePart(models.Model):
+    """Model representing parts that can be used in vehicles"""
+    part_number = models.CharField(max_length=100, unique=True)
+    description = models.TextField()
+    supplier = models.CharField(max_length=200)
+    current_stock = models.IntegerField(default=0)
+    minimum_stock = models.IntegerField(default=5)
+    cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    
+    def __str__(self):
+        return f"{self.part_number} - {self.description}"
+    
+    @property
+    def needs_reorder(self):
+        """Check if part needs to be reordered"""
+        return self.current_stock <= self.minimum_stock
+
+
+class VehiclePartCompatibility(models.Model):
+    """Model linking parts to compatible vehicles"""
+    vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name='compatible_parts')
+    part = models.ForeignKey(VehiclePart, on_delete=models.CASCADE, related_name='compatible_vehicles')
+    
+    class Meta:
+        unique_together = ('vehicle', 'part')
+        verbose_name_plural = 'Vehicle Part Compatibilities'
+    
+    def __str__(self):
+        return f"{self.part} for {self.vehicle}"
+
+
+class ServiceRecord(models.Model):
+    """Model for tracking service history"""
+    vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name='service_records')
+    service_date = models.DateField()
+    mileage_at_service = models.IntegerField()
+    service_type = models.CharField(max_length=100)
+    notes = models.TextField(blank=True)
+    performed_by = models.CharField(max_length=200)
+    cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    
+    def __str__(self):
+        return f"{self.vehicle} - {self.service_date} ({self.service_type})"
+
+
+class ServicePartUsage(models.Model):
+    """Model for tracking parts used during service"""
+    service = models.ForeignKey(ServiceRecord, on_delete=models.CASCADE, related_name='parts_used')
+    part = models.ForeignKey(VehiclePart, on_delete=models.CASCADE)
+    quantity = models.IntegerField(default=1)
+    
+    def __str__(self):
+        return f"{self.part} ({self.quantity}) for {self.service}"
+
+
+class VehiclePart(models.Model):
+    """Model representing parts that can be used in vehicles"""
+    part_number = models.CharField(max_length=100, unique=True)
+    description = models.TextField()
+    supplier = models.CharField(max_length=200)
+    current_stock = models.IntegerField(default=0)
+    minimum_stock = models.IntegerField(default=5)
+    cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    
+    def __str__(self):
+        return f"{self.part_number} - {self.description}"
+    
+    @property
+    def needs_reorder(self):
+        """Check if part needs to be reordered"""
+        return self.current_stock <= self.minimum_stock
+
+
+class VehiclePartCompatibility(models.Model):
+    """Model linking parts to compatible vehicles"""
+    vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name='compatible_parts')
+    part = models.ForeignKey(VehiclePart, on_delete=models.CASCADE, related_name='compatible_vehicles')
+    
+    class Meta:
+        unique_together = ('vehicle', 'part')
+        verbose_name_plural = 'Vehicle Part Compatibilities'
+    
+    def __str__(self):
+        return f"{self.part} for {self.vehicle}"
+
+
+class ServiceRecord(models.Model):
+    """Model for tracking service history"""
+    vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name='service_records')
+    service_date = models.DateField()
+    mileage_at_service = models.IntegerField()
+    service_type = models.CharField(max_length=100)
+    notes = models.TextField(blank=True)
+    performed_by = models.CharField(max_length=200)
+    cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    
+    def __str__(self):
+        return f"{self.vehicle} - {self.service_date} ({self.service_type})"
+
+
+class ServicePartUsage(models.Model):
+    """Model for tracking parts used during service"""
+    service = models.ForeignKey(ServiceRecord, on_delete=models.CASCADE, related_name='parts_used')
+    part = models.ForeignKey(VehiclePart, on_delete=models.CASCADE)
+    quantity = models.IntegerField(default=1)
+    
+    def __str__(self):
+        return f"{self.part} ({self.quantity}) for {self.service}"
+    
+
+
+
+
+
+================================================================================
+vehicle_management/views.py
+================================================================================
+
+from django.shortcuts import render
+from rest_framework import viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from .models import Vehicle, VehiclePart, VehiclePartCompatibility, ServiceRecord, ServicePartUsage
+from .serializers import (
+    VehicleSerializer, 
+    VehiclePartSerializer, 
+    VehiclePartCompatibilitySerializer,
+    ServiceRecordSerializer, 
+    ServicePartUsageSerializer
+)
+
+
+class VehicleViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for vehicles
+    """
+    queryset = Vehicle.objects.all()
+    serializer_class = VehicleSerializer
+    
+    @action(detail=True, methods=['get'])
+    def service_history(self, request, pk=None):
+        """Get service history for a specific vehicle"""
+        vehicle = self.get_object()
+        services = vehicle.service_records.all().order_by('-service_date')
+        serializer = ServiceRecordSerializer(services, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def due_for_service(self, request):
+        """Get all vehicles due for service"""
+        # In a real application, we would calculate this on the fly
+        # For simplicity, we'll just return vehicles with service_due property = True
+        vehicles = [v for v in Vehicle.objects.all() if v.service_due]
+        serializer = VehicleSerializer(vehicles, many=True)
+        return Response(serializer.data)
+
+
+class VehiclePartViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for vehicle parts
+    """
+    queryset = VehiclePart.objects.all()
+    serializer_class = VehiclePartSerializer
+    
+    @action(detail=False, methods=['get'])
+    def low_stock(self, request):
+        """Get parts with low stock that need reordering"""
+        parts = [p for p in VehiclePart.objects.all() if p.needs_reorder]
+        serializer = VehiclePartSerializer(parts, many=True)
+        return Response(serializer.data)
+
+
+class ServiceRecordViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for service records
+    """
+    queryset = ServiceRecord.objects.all().order_by('-service_date')
+    serializer_class = ServiceRecordSerializer
+
+
+class VehiclePartCompatibilityViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for vehicle-part compatibility
+    """
+    queryset = VehiclePartCompatibility.objects.all()
+    serializer_class = VehiclePartCompatibilitySerializer
+    
+    @action(detail=False, methods=['get'])
+    def compatible_parts(self, request):
+        """Get compatible parts for a specific vehicle"""
+        vehicle_id = request.query_params.get('vehicle_id')
+        if not vehicle_id:
+            return Response({"error": "vehicle_id query parameter is required"}, status=400)
+        
+        compatibilities = VehiclePartCompatibility.objects.filter(vehicle_id=vehicle_id)
+        serializer = VehiclePartCompatibilitySerializer(compatibilities, many=True)
+        return Response(serializer.data)
+    
+
+
+    
+# HTML view of vehicle list table
+def vehicle_list(request):
+    vehicles = Vehicle.objects.all().order_by('registration')
+    return render(request, 'vehicle_management/vehicle_list.html', {'vehicles': vehicles})
+# HTML view of part list table
+def part_list(request):
+    parts = VehiclePart.objects.all().order_by('part_number')
+    return render(request, 'vehicle_management/part_list.html', {'parts': parts})
+
+def vehicle_service_parts(request, vehicle_id):
+    try:
+        vehicle = Vehicle.objects.get(pk=vehicle_id)
+        compatible_parts = VehiclePart.objects.filter(compatible_vehicles__vehicle=vehicle)
+        
+        return render(request, 'vehicle_management/vehicle_service_parts.html', {
+            'vehicle': vehicle,
+            'compatible_parts': compatible_parts
+        })
+    except Vehicle.DoesNotExist:
+        from django.http import Http404
+        raise Http404("Vehicle not found")
+    
+        
+
+
+
+
+================================================================================
+mining_project/urls.py
+================================================================================
+
+from django.contrib import admin
+from django.urls import path, include
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('', include('vehicle_management.urls')),  
+]
+
+
+
+
+================================================================================
+vehicle_management/urls.py
+================================================================================
+
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from django.views.generic import RedirectView
+from . import views
+
+# Create a router for API views
+router = DefaultRouter()
+router.register(r'vehicles', views.VehicleViewSet)
+router.register(r'parts', views.VehiclePartViewSet)
+router.register(r'services', views.ServiceRecordViewSet)
+router.register(r'compatibility', views.VehiclePartCompatibilityViewSet)
+
+urlpatterns = [
+
+    path('', RedirectView.as_view(url='vehicles/', permanent=False)),
+    path('api/', include(router.urls)),
+    path('vehicles/', views.vehicle_list, name='vehicle_list'), 
+]
+
+
+
+
+================================================================================
+vehicle_management/admin.py
+================================================================================
+
+# Register your models here.
+from django.contrib import admin
+from .models import Vehicle, VehiclePart, VehiclePartCompatibility, ServiceRecord, ServicePartUsage
+
+# Register models
+admin.site.register(Vehicle)
+admin.site.register(VehiclePart)
+admin.site.register(VehiclePartCompatibility)
+admin.site.register(ServiceRecord)
+admin.site.register(ServicePartUsage)
+
+
+
+
+================================================================================
+vehicle_management/serializers.py
+================================================================================
+
+from rest_framework import serializers
+from .models import Vehicle, VehiclePart, VehiclePartCompatibility, ServiceRecord, ServicePartUsage
+from django.contrib.auth.models import User
+
+
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'first_name', 'last_name', 'email']
+
+
+class VehiclePartSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = VehiclePart
+        fields = '__all__'
+
+
+class VehicleSerializer(serializers.ModelSerializer):
+    assigned_to = UserSerializer(read_only=True)
+    service_due = serializers.BooleanField(read_only=True)
+    next_service_date = serializers.DateField(read_only=True)
+    next_service_mileage = serializers.IntegerField(read_only=True)
+    
+    class Meta:
+        model = Vehicle
+        fields = '__all__'
+
+
+class VehiclePartCompatibilitySerializer(serializers.ModelSerializer):
+    vehicle = VehicleSerializer(read_only=True)
+    part = VehiclePartSerializer(read_only=True)
+    
+    class Meta:
+        model = VehiclePartCompatibility
+        fields = '__all__'
+
+
+class ServicePartUsageSerializer(serializers.ModelSerializer):
+    part = VehiclePartSerializer(read_only=True)
+    
+    class Meta:
+        model = ServicePartUsage
+        fields = '__all__'
+
+
+class ServiceRecordSerializer(serializers.ModelSerializer):
+    parts_used = ServicePartUsageSerializer(many=True, read_only=True)
+    vehicle = VehicleSerializer(read_only=True)
+    
+    class Meta:
+        model = ServiceRecord
+        fields = '__all__'
+
+
+
+
+================================================================================
+vehicle_management/management/commands/__init__.py
+================================================================================
+
+
+
+
+
+
+================================================================================
+vehicle_management/management/commands/import_excel_data.py
+================================================================================
+
+import os
+import pandas as pd
+from datetime import date
+from django.core.management.base import BaseCommand
+from django.contrib.auth.models import User
+from vehicle_management.models import Vehicle, VehiclePart, VehiclePartCompatibility
+
+
+class Command(BaseCommand):
+    help = 'Import data from Excel files'
+
+    def add_arguments(self, parser):
+        parser.add_argument('--vehicles', type=str, help='Path to vehicles Excel file')
+        parser.add_argument('--parts', type=str, help='Path to parts Excel file')
+
+    def handle(self, *args, **options):
+        vehicles_file = options.get('vehicles')
+        parts_file = options.get('parts')
+
+        if vehicles_file and os.path.exists(vehicles_file):
+            self.import_vehicles(vehicles_file)
+        else:
+            self.stdout.write(self.style.WARNING('Vehicles file not found or not specified'))
+
+        if parts_file and os.path.exists(parts_file):
+            self.import_parts(parts_file)
+        else:
+            self.stdout.write(self.style.WARNING('Parts file not found or not specified'))
+
+    def safe_int(self, value, default=0):
+        """Safely convert a value to integer, returning default if conversion fails"""
+        try:
+            if pd.isna(value):
+                return default
+            return int(value)
+        except (ValueError, TypeError):
+            return default
+
+    def safe_date(self, value):
+        """Safely convert a value to date, returning None if conversion fails"""
+        if pd.isna(value):
+            return None
+        try:
+            # Try to convert to datetime first
+            dt = pd.to_datetime(value)
+            return dt.date()
+        except:
+            # If conversion fails, return None
+            return None
+
+    def import_vehicles(self, file_path):
+        """
+        Import vehicles from Excel file.
+        """
+        try:
+            self.stdout.write(f'Importing vehicles from {file_path}')
+            
+            # Read Excel file
+            df = pd.read_excel(file_path)
+            
+            # Print column names for debugging
+            self.stdout.write(f'Found columns: {df.columns.tolist()}')
+            
+            # Create a default user if none exists
+            default_user, created = User.objects.get_or_create(
+                username='admin',
+                defaults={'email': 'admin@example.com', 'is_staff': True, 'is_superuser': True}
+            )
+            if created:
+                default_user.set_password('admin')
+                default_user.save()
+            
+            vehicles_created = 0
+            vehicles_updated = 0
+            
+            # Process each row based on the actual structure
+            for idx, row in df.iterrows():
+                try:
+                    # Get vehicle details - adjust indexes based on your actual Excel structure
+                    vehicle_id = str(row.iloc[0]) if not pd.isna(row.iloc[0]) else ""  # Motor Vehicle ID
+                    registration = str(row.iloc[1]) if not pd.isna(row.iloc[1]) else f"UNKNOWN-{idx}"  # Registration
+                    driver_name = str(row.iloc[2]) if not pd.isna(row.iloc[2]) else ""  # Driver
+                    
+                    # Other details - adjust indexes as needed
+                    make = 'Toyota'  # Default assumption
+                    model = str(row.iloc[6]) if not pd.isna(row.iloc[6]) else ""  # Model
+                    year = self.safe_int(row.iloc[7], 0)  # Year
+                    vin = str(row.iloc[10]) if not pd.isna(row.iloc[10]) else f"UNKNOWN-{idx}"  # VIN
+                    purchase_date = self.safe_date(row.iloc[3])  # Purchase date
+                    last_service_date = self.safe_date(row.iloc[11])  # Last service date
+                    last_service_mileage = self.safe_int(row.iloc[12], 0)  # Last service mileage
+                    
+                    # Skip rows with missing essential data
+                    if not vehicle_id or not registration:
+                        self.stdout.write(self.style.WARNING(f'Skipping row {idx+2}: Missing vehicle ID or registration'))
+                        continue
+                    
+                    # Create a vehicle record with additional fields
+                    vehicle_data = {
+                        'name': vehicle_id,  # Add a name field to store the Motor Vehicle ID
+                        'make': make,
+                        'model': model,
+                        'year': year,
+                        'registration': registration,
+                        'vin': vin,
+                        'current_mileage': 0,  # Not tracking current mileage
+                        'purchase_date': purchase_date or date.today(),
+                        'last_service_date': last_service_date,
+                        'last_service_mileage': last_service_mileage,
+                        'service_interval_months': 6,  # Default
+                        'service_interval_miles': 10000,  # Service every 10,000 km
+                        'assigned_to': default_user,
+                        'driver': driver_name,  # Store the driver name
+                    }
+                    
+                    # Create vehicle if it doesn't exist, otherwise update
+                    vehicle, created = Vehicle.objects.update_or_create(
+                        name=vehicle_data['name'],  # Use name (Motor Vehicle ID) as the unique identifier
+                        defaults=vehicle_data
+                    )
+                    
+                    if created:
+                        vehicles_created += 1
+                    else:
+                        vehicles_updated += 1
+                    
+                except Exception as e:
+                    self.stdout.write(self.style.ERROR(f'Error importing row {idx+2}: {str(e)}'))
+            
+            self.stdout.write(self.style.SUCCESS(f'Successfully imported {vehicles_created} vehicles and updated {vehicles_updated} vehicles'))
+            
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f'Error reading Excel file: {str(e)}'))
+
+
+        
+    def import_parts(self, file_path):
+        """Import parts from Excel file's 'Vehicle Stock levels' tab."""
+        try:
+            self.stdout.write(f'Importing parts from {file_path} (Vehicle Stock levels tab)')
+            
+            # Read Excel file, specifically the 'Vehicle Stock levels' tab
+            df = pd.read_excel(file_path, sheet_name='Vehicle Stock levels')
+            
+            # Skip the first row which contains headers
+            df = df.iloc[1:]
+            
+            # Print column names for debugging
+            self.stdout.write(f'Found columns: {df.columns.tolist()}')
+            
+            parts_created = 0
+            parts_updated = 0
+            
+            # Process each row (vehicle)
+            for idx, row in df.iterrows():
+                try:
+                    # Skip empty rows
+                    if pd.isna(row.iloc[0]):
+                        continue
+                    
+                    # Get vehicle details
+                    vehicle_id = str(row.iloc[0]) if not pd.isna(row.iloc[0]) else ""  # Motor Vehicle ID
+                    registration = str(row.iloc[1]) if not pd.isna(row.iloc[1]) else ""  # Rego
+                    model = str(row.iloc[2]) if not pd.isna(row.iloc[2]) else ""  # Model
+                    year = self.safe_int(row.iloc[3], 0)  # Year
+                    tyre_size = str(row.iloc[12]) if not pd.isna(row.iloc[12]) else ""  # Tyre size
+                    rim_colour = str(row.iloc[13]) if not pd.isna(row.iloc[13]) else ""  # Rim colour
+                    
+                    # Process Fuel Filter
+                    if not pd.isna(row.iloc[4]):  # Fuel filter part #
+                        part_data = {
+                            'part_number': str(row.iloc[4]),
+                            'description': 'Fuel Filter',
+                            'supplier': 'Unknown',
+                            'current_stock': self.safe_int(row.iloc[5], 0),  # Fuel filter stock
+                            'minimum_stock': 1,
+                            'cost': None,
+                        }
+                        
+                        part, created = VehiclePart.objects.update_or_create(
+                            part_number=part_data['part_number'],
+                            defaults=part_data
+                        )
+                        
+                        if created:
+                            parts_created += 1
+                        else:
+                            parts_updated += 1
+                    
+                    # Process Oil Filter
+                    if not pd.isna(row.iloc[6]):  # Oil filter part #
+                        part_data = {
+                            'part_number': str(row.iloc[6]),
+                            'description': 'Oil Filter',
+                            'supplier': 'Unknown',
+                            'current_stock': self.safe_int(row.iloc[7], 0),  # Oil filter stock
+                            'minimum_stock': 1,
+                            'cost': None,
+                        }
+                        
+                        part, created = VehiclePart.objects.update_or_create(
+                            part_number=part_data['part_number'],
+                            defaults=part_data
+                        )
+                        
+                        if created:
+                            parts_created += 1
+                        else:
+                            parts_updated += 1
+                    
+                    # Process Air Filter
+                    if not pd.isna(row.iloc[8]):  # Air filter part #
+                        part_data = {
+                            'part_number': str(row.iloc[8]),
+                            'description': 'Air Filter',
+                            'supplier': 'Unknown',
+                            'current_stock': self.safe_int(row.iloc[9], 0),  # Air filter stock
+                            'minimum_stock': 1,
+                            'cost': None,
+                        }
+                        
+                        part, created = VehiclePart.objects.update_or_create(
+                            part_number=part_data['part_number'],
+                            defaults=part_data
+                        )
+                        
+                        if created:
+                            parts_created += 1
+                        else:
+                            parts_updated += 1
+                    
+                    # Process Cabin Filter
+                    if not pd.isna(row.iloc[10]):  # Cabin filter part #
+                        part_data = {
+                            'part_number': str(row.iloc[10]),
+                            'description': 'Cabin Filter',
+                            'supplier': 'Unknown',
+                            'current_stock': self.safe_int(row.iloc[11], 0),  # Cabin filter stock
+                            'minimum_stock': 1,
+                            'cost': None,
+                        }
+                        
+                        part, created = VehiclePart.objects.update_or_create(
+                            part_number=part_data['part_number'],
+                            defaults=part_data
+                        )
+                        
+                        if created:
+                            parts_created += 1
+                        else:
+                            parts_updated += 1
+                    
+                    # Try to find matching vehicle in database for compatibility
+                    # First try by vehicle_id (Motor Vehicle ID)
+                    matching_vehicles = Vehicle.objects.filter(name__iexact=vehicle_id)
+                    
+                    # If no match by name, try by registration
+                    if not matching_vehicles.exists() and registration:
+                        matching_vehicles = Vehicle.objects.filter(registration__iexact=registration)
+                    
+                    for vehicle in matching_vehicles:
+                        # Update vehicle with additional info from parts sheet
+                        if tyre_size or rim_colour:
+                            # Add these as custom_fields or notes
+                            notes = vehicle.notes if hasattr(vehicle, 'notes') else ""
+                            if tyre_size:
+                                notes += f"Tyre Size: {tyre_size}\n"
+                            if rim_colour:
+                                notes += f"Rim Colour: {rim_colour}\n"
+                            
+                            if hasattr(vehicle, 'notes'):
+                                vehicle.notes = notes
+                                vehicle.save()
+                        
+                        # Create the compatibility record for each part
+                        for part_idx, part_type in [(4, 'Fuel Filter'), (6, 'Oil Filter'), (8, 'Air Filter'), (10, 'Cabin Filter')]:
+                            if not pd.isna(row.iloc[part_idx]):
+                                try:
+                                    part = VehiclePart.objects.get(part_number=str(row.iloc[part_idx]))
+                                    compatibility, created = VehiclePartCompatibility.objects.get_or_create(
+                                        vehicle=vehicle,
+                                        part=part
+                                    )
+                                    self.stdout.write(self.style.SUCCESS(
+                                        f'Linked {part_type} {part.part_number} to vehicle {vehicle.registration}'
+                                    ))
+                                except VehiclePart.DoesNotExist:
+                                    self.stdout.write(self.style.WARNING(
+                                        f'Part {str(row.iloc[part_idx])} not found for {part_type}'
+                                    ))
+                    
+                except Exception as e:
+                    self.stdout.write(self.style.ERROR(f'Error importing row {idx+2}: {str(e)}'))
+            
+            self.stdout.write(self.style.SUCCESS(
+                f'Successfully imported {parts_created} parts and updated {parts_updated} parts'
+            ))
+            
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f'Error reading Excel file: {str(e)}'))
+
+
+
